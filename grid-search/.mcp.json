@@ -1,0 +1,6 @@
+{
+  "the-grid": {
+    "type": "http",
+    "url": "https://mcp.thegrid.id/mcp"
+  }
+}

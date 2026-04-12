@@ -2,101 +2,55 @@
 
 Query reference for The Grid's Web3 database via the remote MCP server at `mcp.thegrid.id`.
 
-All queries are executed through the `mcp__the-grid__query` and `mcp__the-grid__find` tools,
-which are provided by the grid-search plugin. No direct API access or local setup needed.
-
-All core query patterns tested and confirmed working. Known limitations documented below.
+All queries are executed through the `mcp__grid__query`, `mcp__grid__find`, and
+`mcp__grid__get-tgs` tools provided by the grid-search plugin.
 
 ---
 
-## Core Concepts
+## Tools
 
-### Data Structure
+### `mcp__grid__get-tgs` — Schema Discovery
+
+Explore the data model, list available lenses and tables, and get full enum values
+without writing GraphQL. **Use this first** when unsure what fields or values exist.
+
+| Action | Parameter | Returns |
+|--------|-----------|---------|
+| `lenses` | — | All schema lenses with descriptions and their table names |
+| `enums` | — | All enum types with value counts |
+| `enum` | `name` (e.g. "productTypes") | Full list of const/title/description for an enum |
+| `schema` | `name` (e.g. "products") | Full JSON Schema for a lens or table |
+
+**Examples:**
 
 ```
-Profile (Company/Protocol)
-  - Products (DEX, Wallet, Bridge, etc.)
-      - supportsProducts (links to other products, e.g., which chains it supports)
-      - Product-Asset Relationships
-      - Product Deployments (Smart Contracts)
-      - Product URLs
-  - Assets (Tokens, Coins)
-      - Asset Deployments
-      - Asset URLs
-  - Entities (Legal structures)
-  - Profile URLs
-  - Social Media Accounts
+# What lenses (query areas) exist?
+get-tgs(action: "lenses")
+
+# What enums exist and how many values each has?
+get-tgs(action: "enums")
+
+# What are all 118 product types?
+get-tgs(action: "enum", name: "productTypes")
+
+# What fields does the products lens have?
+get-tgs(action: "schema", name: "products")
+
+# What are the tag types?
+get-tgs(action: "enum", name: "tagTypes")
+
+# What tags exist?
+get-tgs(action: "enum", name: "tags")
 ```
 
-### Key Entities
-
-**Profile** = Top-level organization (e.g., "Uniswap", "Aave", "Phantom")
-
-**Product** = Specific offering (e.g., "Uniswap V3", "Aave V3 Lending", "Phantom Wallet")
-
-**Asset** = Digital token/coin (e.g., "UNI", "AAVE", "Bitcoin")
-
-### Relationships
-
-- **Products <-> Assets**: Products support/integrate specific assets (via `productAssetRelationships`)
-- **Products <-> Products**: Products support other products, e.g., a DEX supports an L1 chain (via `supportsProducts`)
-- **Products <-> Blockchains**: Products deploy on specific networks (via `productDeployments`)
-- **Assets <-> Blockchains**: Assets exist on specific chains (via `assetDeployments`)
-- **Profiles <-> Entities**: Legal structures behind profiles
-
-**`supportsProducts`** is the key relationship for ecosystem queries. Each product has a
-`supportsProducts` array where `supportsProductId` points to the product it supports.
-To find all products in a blockchain ecosystem, query products where
-`supportsProducts.supportsProductId` equals the chain's product ID.
-
-### Best Practices for Filtering
-
-**ALWAYS use `slug` fields instead of IDs for enum filtering:**
-
-DO: `{productType: {slug: {_eq: "decentralised_exchange"}}}`
-
-DON'T: `{productTypeId: {_eq: "25"}}`
-
-**Why slugs are better:**
-
-- **Human-readable**: "wallet" vs "692"
-- **Stable**: Slugs don't change, IDs might
-- **No truncation**: Long IDs get cut off, slugs don't
-- **Self-documenting**: Code is easier to understand
-
-**How to discover slugs:**
-
-```graphql
-# Get all product type slugs
-productTypes { name slug }
-
-# Get all asset type slugs
-assetTypes { name slug }
-
-# Get all status slugs
-productStatuses { name slug }
-profileStatuses { name slug }
-assetStatuses { name slug }
-```
-
----
-
-## MCP Tools
-
-### `mcp__the-grid__query`
+### `mcp__grid__query` — Custom GraphQL
 
 Execute custom GraphQL queries against The Grid database.
 
-**When to use:**
+**When to use:** Complex multi-entity queries, specific field requirements, advanced
+filtering, aggregations and counts, relationship traversal.
 
-- Complex multi-entity queries
-- Specific field requirements
-- Advanced filtering with GraphQL operators
-- Aggregations and counts
-
-**Syntax:**
-
-Pass GraphQL query strings to the tool. The query body goes inside the tool call:
+**Syntax:** Pass GraphQL query strings to the tool:
 
 ```graphql
 query {
@@ -108,17 +62,15 @@ query {
 }
 ```
 
-### `mcp__the-grid__find`
+### `mcp__grid__find` — Quick Search
 
-Quick search for products, assets, or profiles without writing GraphQL. Supports filtering by
-name, type, and status.
-
-**Parameters:**
+Search for products, assets, or profiles without writing GraphQL. Results are
+ordered by Grid Rank (most important first).
 
 | Param | Required | Description |
 |-------|----------|-------------|
 | `lens` | yes | `"products"`, `"assets"`, or `"profiles"` |
-| `name` | no | Filter by name. `%value%` for substring, `value1,value2` for multiple, or exact match |
+| `name` | no | Filter by name. `%value%` for substring, `value1,value2` for multiple |
 | `type` | no | Filter by type (same patterns as name) |
 | `status` | no | Filter by status (same patterns as name) |
 | `limit` | no | Max results (default: 10) |
@@ -126,29 +78,95 @@ name, type, and status.
 **Examples:**
 
 ```
-# Find products with "Jupiter" in the name
 find(lens: "products", name: "%Jupiter%")
-
-# Find all live wallets
 find(lens: "products", type: "Wallet", status: "Live")
-
-# Find assets by ticker-like name
 find(lens: "assets", name: "%SOL%")
-
-# Find multiple product types
 find(lens: "products", type: "Decentralised Exchange,DEX Aggregator")
-
-# Find profiles by name
 find(lens: "profiles", name: "%Uniswap%")
 ```
 
 **Notes:**
-- `lens` supports `"products"`, `"assets"`, and `"profiles"` — for socials or other
-  entities, use `mcp__grid__query` with GraphQL instead
-- The `type` and `status` filters match against the human-readable name (e.g., "Wallet",
-  "Live"), not the slug or ID
-- Use `mcp__grid__query` when you need joins, nested fields, relationships, or entities
-  beyond products/assets
+- `find` uses human-readable type/status names (e.g. "Wallet", "Live"), not slugs
+- Only supports `products`, `assets`, `profiles` — for tags, socials, relationships,
+  use `mcp__grid__query`
+
+---
+
+## Data Model
+
+### Lenses (Query Areas)
+
+| Lens | Description | Key Tables |
+|------|-------------|------------|
+| `profiles` | Organizations, companies, protocols, DAOs | profileInfos, profileTags, tags, tagTypes |
+| `products` | Offerings — DEX, Wallet, Bridge, L1, L2, etc. | products, supportsProducts |
+| `assets` | Tokens, coins, stablecoins | assets, derivativeAssets |
+| `socials` | Social media accounts | socials |
+| `urls` | Web links for all entities | urls, urlTypes |
+| `media` | Logos, icons, headers | media, mediaTypes |
+| `attributes` | Key-value metadata (ratings, ChainIDs) | attributes, attributeTypes |
+| `entities` | Legal structures | entities, entityTypes |
+| `productAssetRelationships` | Product-asset links | productAssetRelationships |
+| `smartContractDeployments` | On-chain deployments | smartContractDeployments, smartContracts |
+| `internalHelpers` | Grid Rank, profile relationships, roots | gridRank, rootRelationships, roots |
+
+### Entity Relationships
+
+```
+Profile (profileInfos)
+  |-- root (the canonical identity anchor)
+  |     |-- products
+  |     |-- assets
+  |     |-- socials
+  |     |-- entities
+  |     |-- media
+  |     |-- profileTags -> tags
+  |     |-- gridRank
+  |     |-- childRootRelationships -> childRoot -> profileInfos
+  |     +-- parentRootRelationships -> parentRoot -> profileInfos
+  |
+Product (products)
+  |-- productType, productStatus
+  |-- supportsProducts (ecosystem membership)
+  |-- productDeployments -> smartContractDeployment -> smartContracts
+  |-- productAssetRelationships -> asset
+  |-- urls, media
+  +-- root -> profileInfos (parent profile)
+
+Asset (assets)
+  |-- assetType, assetStatus
+  |-- assetDeployments -> smartContractDeployment -> smartContracts
+  |-- derivativeAssets
+  |-- urls, media
+  +-- root -> profileInfos (parent profile)
+```
+
+### Best Practices for Filtering
+
+**ALWAYS use `slug` fields instead of IDs for enum filtering:**
+
+DO: `{productType: {slug: {_eq: "decentralised_exchange"}}}`
+
+DON'T: `{productTypeId: {_eq: "25"}}`
+
+**Why:** Slugs are human-readable, stable, self-documenting, and don't get truncated.
+
+**Discover slugs with `get-tgs`:**
+
+```
+get-tgs(action: "enum", name: "productTypes")   # All product type slugs
+get-tgs(action: "enum", name: "assetTypes")      # All asset type slugs
+get-tgs(action: "enum", name: "profileSectors")  # All sector slugs
+```
+
+Or via GraphQL:
+
+```graphql
+productTypes { name slug }
+assetTypes { name slug }
+productStatuses { name slug }
+profileStatuses { name slug }
+```
 
 ---
 
@@ -156,86 +174,46 @@ find(lens: "profiles", name: "%Uniswap%")
 
 ### Pattern 1: Search by Profile Name
 
-**VERIFIED WORKING**
-
-**Direct match:**
-
 ```graphql
+# Direct match
 profileInfos(where: {name: {_eq: "Jupiter"}}) {
-  id
-  name
-  descriptionShort
+  id name descriptionShort
   profileType { name }
   profileSector { name }
   profileStatus { name }
   urls { url urlType { name } }
 }
-```
 
-**Fuzzy match:**
-
-```graphql
+# Fuzzy match
 profileInfos(where: {name: {_like: "%Jup%"}})
 ```
 
-**What you get:**
-
-- Profile ID, name, slug
-- Profile type (Company, DAO, Project)
-- Sector (Finance, Infrastructure, etc.)
-- Status (Active, Inactive, etc.)
-- URLs, founding date, descriptions
-
 ### Pattern 2: Search by Product Name
-
-**VERIFIED WORKING**
 
 ```graphql
 products(where: {name: {_like: "%Jupiter%"}}, limit: 5) {
-  id
-  name
+  id name
   productType { name }
   root { profileInfos { name } }
 }
 ```
 
-**Returns:**
-
-- Product ID, name, description
-- Product type (Wallet, DEX, Bridge, etc.)
-- Status (Live, Beta, Discontinued)
-- Parent profile information
-- Smart contract deployments (if queried)
-
 ### Pattern 3: Search by Asset Ticker or Name
 
-**VERIFIED WORKING**
-
-**By ticker:**
-
 ```graphql
+# By ticker
 assets(where: {ticker: {_eq: "SOL"}}) {
-  id
-  name
-  ticker
-  description
+  id name ticker description
   assetType { name }
   assetStatus { name }
 }
-```
 
-**By full name:**
-
-```graphql
+# By name
 assets(where: {name: {_like: "%Solana%"}})
-```
 
-**With deployments:**
-
-```graphql
+# With deployments (contract addresses)
 assets(where: {ticker: {_eq: "USDC"}}) {
-  name
-  ticker
+  name ticker
   assetDeployments {
     smartContractDeployment {
       deployedOnProduct { name }
@@ -246,62 +224,17 @@ assets(where: {ticker: {_eq: "USDC"}}) {
 }
 ```
 
-**Returns:**
-
-- Asset ID, name, ticker, icon
-- Asset type (Currency, Stablecoin, Governance, etc.)
-- Deployment details (blockchain, contract address)
-- Parent profile
-
-### Pattern 4: Search by URL
-
-**LIMITED** — Direct URL filtering not fully supported in current schema.
-
-**Workaround — Get profile first, then check URLs:**
+### Pattern 4: Search by Social Media
 
 ```graphql
-# Step 1: Find profile by name
-profileInfos(where: {name: {_like: "%Jupiter%"}}) {
-  id
-  name
-  urls {
-    url
-    urlType { name }
-  }
-}
-
-# Step 2: Manually filter results by URL pattern
-```
-
-**Product URL search — Same approach:**
-
-```graphql
-products(where: {name: {_like: "%keyword%"}}) {
-  name
-  urls { url urlType { name } }
-}
-```
-
-### Pattern 5: Search by Social Media
-
-**VERIFIED WORKING**
-
-**Find by social handle:**
-
-```graphql
+# Find by social handle
 socials(where: {name: {_like: "%phantom%"}}, limit: 5) {
-  id
-  name
+  id name
   socialType { name }
-  root {
-    profileInfos { name }
-  }
+  root { profileInfos { name } }
 }
-```
 
-**Get all socials for a profile:**
-
-```graphql
+# Get all socials for a profile
 profileInfos(where: {name: {_eq: "Phantom"}}) {
   name
   root {
@@ -314,216 +247,154 @@ profileInfos(where: {name: {_eq: "Phantom"}}) {
 }
 ```
 
-**What you get:**
+### Pattern 5: Search by Tags
 
-- Twitter/X, Discord, Telegram, GitHub, etc.
-- Social account names and handles
-- Social status (Active, Inactive, Suspended)
-- Parent profile information
-
----
-
-## Ordering Results
-
-**VERIFIED WORKING**
-
-The Grid GraphQL API supports ordering query results using the `order_by` parameter.
-
-### Supported Order Values
-
-- **`Asc`** — Ascending order (A to Z, 0 to 9, oldest to newest)
-- **`Desc`** — Descending order (Z to A, 9 to 0, newest to oldest)
-
-The API does NOT support `Asc_nulls_first`, `Asc_nulls_last`, `Desc_nulls_first`, or `Desc_nulls_last`.
-
-### Single Field Ordering
+Tags categorize profiles by events, ecosystems, communities, tech paradigms, and more.
 
 ```graphql
-# Order products by name (ascending)
-products(order_by: { name: Asc }, limit: 10) {
-  name
-  productType { name }
+# Find profiles with a specific tag
+profileTags(where: {tag: {name: {_eq: "Breakpoint 25 Attendee"}}}, limit: 20) {
+  root { profileInfos { name descriptionShort profileType { name } } }
+  tag { name tagType { name } }
 }
 
-# Order assets by ticker (descending)
-assets(order_by: { ticker: Desc }, limit: 10) {
-  name
-  ticker
+# Find profiles by tag type (e.g. all hackathon participants)
+profileTags(where: {tag: {tagType: {slug: {_eq: "hackathon"}}}}, limit: 20) {
+  root { profileInfos { name } }
+  tag { name }
 }
 
-# Order by date (newest first)
-products(
-  where: {productStatus: {slug: {_eq: "live"}}}
-  order_by: { launchDate: Desc }
-  limit: 5
-) {
+# Search tags by partial name
+profileTags(where: {tag: {name: {_like: "%Solana%"}}}, limit: 20) {
+  root { profileInfos { name } }
+  tag { name tagType { name } }
+}
+
+# Get all tags for a specific profile
+profileInfos(where: {name: {_eq: "Jupiter"}}) {
   name
-  launchDate
-  productType { name }
+  root {
+    profileTags { tag { name tagType { name } } }
+  }
+}
+
+# Count profiles per tag
+tags(limit: 50) {
+  name
+  tagType { name }
+  profileTagsAggregate { _count }
 }
 ```
 
-### Multiple Field Ordering
+**Tag types:** Event, Community, Tech, Paradigm, Geography, Hackathon, Report
 
-Order by multiple fields by passing an array. First field has priority.
+**To get the full tag list:** `get-tgs(action: "enum", name: "tags")`
+
+### Pattern 6: Search by URL
+
+```graphql
+# Find profiles by domain
+profileInfos(where: {urls: {url: {_like: "%solana.com%"}}}) {
+  name
+  urls { url urlType { name } }
+}
+
+# Find products by domain
+products(where: {urls: {url: {_like: "%solana.com%"}}}) {
+  name
+  urls { url urlType { name } }
+  root { profileInfos { name } }
+}
+```
+
+---
+
+## Profile Relationship Queries
+
+Profiles can be linked hierarchically via `rootRelationships`.
+
+**Relationship types:** Acquired by, Associated with, Managed by, Product of
+
+### Find Children (Subsidiaries, Sub-brands)
+
+```graphql
+profileInfos(where: {name: {_eq: "Coinbase"}}) {
+  name
+  root {
+    childRootRelationships {
+      relationshipType { name }
+      childRoot {
+        profileInfos { name profileType { name } }
+      }
+    }
+  }
+}
+```
+
+### Find Parent
+
+```graphql
+profileInfos(where: {name: {_eq: "Base"}}) {
+  name
+  root {
+    parentRootRelationships {
+      relationshipType { name }
+      parentRoot {
+        profileInfos { name }
+      }
+    }
+  }
+}
+```
+
+### Find All Acquisitions
+
+```graphql
+rootRelationships(
+  where: {relationshipType: {slug: {_eq: "acquired_by"}}}
+  limit: 20
+) {
+  parentRoot { profileInfos { name } }
+  childRoot { profileInfos { name } }
+}
+```
+
+---
+
+## Blockchain Ecosystem Queries
+
+### Step 1: Find the Chain's Product ID
+
+```graphql
+profileInfos(where: {name: {_eq: "Solana"}}) {
+  name
+  root {
+    products(where: {productType: {slug: {_in: ["l1", "l2"]}}}) {
+      id name
+    }
+  }
+}
+# Result: Solana Mainnet -> id: "22"
+```
+
+### Method A — `supportsProducts` (broad ecosystem view)
+
+Products that support the chain in any way — even without on-chain deployments.
 
 ```graphql
 products(
-  order_by: [
-    { productType: { name: Asc } }
-    { name: Asc }
-  ]
+  where: { supportsProducts: { supportsProductId: {_eq: "22"} } }
   limit: 20
 ) {
   name
-  productType { name }
-}
-```
-
-### Ordering Nested Fields
-
-```graphql
-products(
-  order_by: { root: { profileInfos: { name: Asc } } }
-  limit: 10
-) {
-  name
-  root {
-    profileInfos { name }
-  }
-}
-```
-
-### Combining Filters and Ordering
-
-```graphql
-# Live DEX products, newest first
-products(
-  where: {
-    _and: [
-      {productType: {slug: {_eq: "decentralised_exchange"}}},
-      {productStatus: {slug: {_eq: "live"}}}
-    ]
-  }
-  order_by: { launchDate: Desc }
-  limit: 10
-) {
-  name
-  launchDate
   productType { name slug }
-  productStatus { name slug }
+  root { profileInfos { name } }
 }
 ```
 
-### Ordering Notes
+### Method B — `productDeployments` (on-chain only)
 
-1. Ordering is case-sensitive by default
-2. Null values appear at the end for `Asc` and at the beginning for `Desc`
-3. Combine `order_by` with `limit` and `offset` for paginated results
-
----
-
-## Common Queries
-
-### 1. Get Full Profile Details
-
-**VERIFIED WORKING**
-
-```graphql
-profileInfos(where: {name: {_eq: "Phantom"}}) {
-  name
-  logo
-  tagLine
-  descriptionShort
-  descriptionLong
-  profileType { name }
-  profileSector { name }
-  profileStatus { name }
-  foundingDate
-  urls { url urlType { name } }
-  root {
-    slug
-    products {
-      name
-      description
-      productType { name }
-      productStatus { name }
-      launchDate
-    }
-    assets {
-      name
-      ticker
-      assetType { name }
-      assetStatus { name }
-    }
-    socials {
-      socialType { name }
-      name
-      socialStatus { name }
-    }
-  }
-}
-```
-
-### 2. List All Products of a Type
-
-**VERIFIED WORKING**
-
-```graphql
-products(where: {productType: {slug: {_eq: "decentralised_exchange"}}}, limit: 5) {
-  name
-  description
-  productStatus { name slug }
-  productType { name slug }
-  root { profileInfos { name logo } }
-}
-```
-
-**Common product type slugs (use these instead of IDs):**
-
-- DEX: `decentralised_exchange`
-- Wallet: `wallet`
-- Bridge: `bridge`
-- Oracle: `oracle`
-- RPC Provider: `rpc_provider`
-- L1 Blockchain: `l1`
-- L2 Blockchain: `l2`
-- AI Agent: `ai_agent`
-- AI Agent Platform: `ai_agent_platform`
-
-### 3. Find Products Supporting Specific Asset
-
-**VERIFIED WORKING**
-
-```graphql
-productAssetRelationships(
-  where: {asset: {ticker: {_eq: "USDC"}}}
-  limit: 5
-) {
-  product {
-    name
-    productType { name }
-    root { profileInfos { name } }
-  }
-  asset {
-    name
-    ticker
-  }
-  assetSupportType { name }
-}
-```
-
-**Support types:**
-
-- Native to (blockchain's native token)
-- Supported by (protocol integration)
-- Governance (voting token)
-- Managed by (issuer)
-- Utility (required for use)
-
-### 4. Get Blockchain Deployments
-
-**VERIFIED WORKING**
+Products with smart contracts deployed on the chain.
 
 ```graphql
 products(
@@ -534,53 +405,239 @@ products(
       }
     }
   }
-  limit: 5
+  limit: 20
 ) {
   name
-  productType { name }
+  productType { name slug }
   productDeployments {
     smartContractDeployment {
-      smartContracts {
-        address
-      }
       deployedOnProduct { name }
-      assetStandard { name }
+      smartContracts { address }
     }
   }
 }
 ```
 
-### 5. Asset Information with Contracts
-
-**VERIFIED WORKING**
+### Counting Product Types in an Ecosystem
 
 ```graphql
-assets(where: {ticker: {_eq: "USDC"}}, limit: 1) {
+productTypes {
   name
-  ticker
-  description
-  assetType { name }
-  assetDeployments {
-    smartContractDeployment {
-      deployedOnProduct { name }
-      assetStandard { name }
-      smartContracts {
-        address
-      }
+  productsAggregate(
+    filter_input: {
+      where: {supportsProducts: {supportsProductId: {_eq: "22"}}}
+    }
+  ) { _count }
+}
+```
+
+---
+
+## Asset Ecosystem Queries
+
+### Products That Interact with an Asset
+
+```graphql
+productAssetRelationships(
+  where: {asset: {ticker: {_eq: "SOL"}}}
+  limit: 20
+) {
+  product {
+    name
+    productType { name slug }
+    root { profileInfos { name } }
+  }
+  asset { name ticker }
+  assetSupportType { name }
+}
+```
+
+**`assetSupportType` values:**
+- **Native to** — blockchain's native token (e.g. SOL for Solana)
+- **Supported by** — protocol-level integration (listing, collateral, oracle feed)
+- **Governance** — voting/governance token
+- **Managed by** — token issuer
+- **Utility** — required for product usage / primary payment method
+- **Launched via** — asset was issued via this product
+- **Distributed via** — distribution managed by a third-party product
+- **Payment Accepted by** — can receive as payment, including via gateways
+
+---
+
+## Media Queries
+
+Get logos, icons, and header images for any entity.
+
+**Media types:** Icon, Logo on white, Logo on black, Header
+
+```graphql
+# Get all media for a profile
+profileInfos(where: {name: {_eq: "Phantom"}}) {
+  name
+  root {
+    media { url mediaType { name } }
+  }
+}
+
+# Get icons specifically
+profileInfos(where: {name: {_eq: "Phantom"}}) {
+  name
+  root {
+    media(where: {mediaType: {slug: {_eq: "icon"}}}) {
+      url
     }
   }
 }
 ```
 
-### 6. Profile Discovery by Sector
+---
+
+## Attribute Queries
+
+Attributes are key-value metadata for entities (e.g. Bluechip stablecoin ratings, ChainIDs).
+
+```graphql
+# Get attributes for a profile
+attributes(
+  where: {attributeType: {slug: {_eq: "bluechip_stablecoin_rating"}}}
+  limit: 20
+) {
+  value
+  attributeType { name }
+}
+```
+
+**Current attribute types:** Bluechip Stablecoin Rating, ChainID - CAIP-2
+
+Use `get-tgs(action: "enum", name: "attributeTypes")` to check for new ones.
+
+---
+
+## Grid Rank
+
+Importance scoring based on ecosystem connectivity (how many other profiles, products,
+and assets a profile is linked to). Higher is better.
+
+```graphql
+profileInfos(where: {name: {_eq: "Uniswap"}}) {
+  name
+  root { gridRank { score } }
+}
+```
+
+---
+
+## Ordering Results
+
+### Supported Order Values
+
+- **`Asc`** — Ascending (A-Z, 0-9, oldest first)
+- **`Desc`** — Descending (Z-A, 9-0, newest first)
+
+The API does NOT support `Asc_nulls_first/last` or `Desc_nulls_first/last`.
+
+### Examples
+
+```graphql
+# Order by name
+products(order_by: { name: Asc }, limit: 10) {
+  name productType { name }
+}
+
+# Order by date (newest first)
+products(
+  where: {productStatus: {slug: {_eq: "live"}}}
+  order_by: { launchDate: Desc }
+  limit: 5
+) {
+  name launchDate productType { name }
+}
+
+# Multiple field ordering
+products(
+  order_by: [
+    { productType: { name: Asc } }
+    { name: Asc }
+  ]
+  limit: 20
+) {
+  name productType { name }
+}
+
+# Nested field ordering
+products(
+  order_by: { root: { profileInfos: { name: Asc } } }
+  limit: 10
+) {
+  name
+  root { profileInfos { name } }
+}
+```
+
+---
+
+## Common Queries
+
+### Full Profile Details
+
+```graphql
+profileInfos(where: {name: {_eq: "Phantom"}}) {
+  name logo tagLine descriptionShort descriptionLong
+  profileType { name } profileSector { name } profileStatus { name }
+  foundingDate
+  urls { url urlType { name } }
+  root {
+    slug
+    gridRank { score }
+    products {
+      name description
+      productType { name } productStatus { name }
+      launchDate
+    }
+    assets {
+      name ticker
+      assetType { name } assetStatus { name }
+    }
+    socials {
+      socialType { name } name socialStatus { name }
+    }
+    profileTags { tag { name tagType { name } } }
+    media { url mediaType { name } }
+  }
+}
+```
+
+### List Products by Type
+
+```graphql
+products(where: {productType: {slug: {_eq: "decentralised_exchange"}}}, limit: 5) {
+  name description
+  productStatus { name slug }
+  productType { name slug }
+  root { profileInfos { name logo } }
+}
+```
+
+**Common product type slugs:**
+- DEX: `decentralised_exchange`
+- Wallet: `wallet`
+- Bridge: `bridge`
+- Oracle: `oracle`
+- RPC Provider: `rpc_provider`
+- L1: `l1`, L2: `l2`
+- AI Agent: `ai_agent`
+- AI Agent Platform: `ai_agent_platform`
+
+There are 118 product types — use `get-tgs(action: "enum", name: "productTypes")` for the full list.
+
+### Profile Discovery by Sector
 
 ```graphql
 profileInfos(
   where: {profileSector: {slug: {_eq: "finance"}}}
   limit: 20
 ) {
-  name
-  descriptionShort
+  name descriptionShort
   profileSector { name slug }
   root {
     productsAggregate { _count }
@@ -589,29 +646,18 @@ profileInfos(
 }
 ```
 
-**Common sector slugs (use these instead of IDs):**
+There are 28 profile sectors — use `get-tgs(action: "enum", name: "profileSectors")` for the full list.
 
-- Finance: `finance`
-- Infrastructure: `infrastructure`
-- Developer Tooling: `developer_tooling`
-- Gaming: `gaming`
-- NFTs: `nfts`
-
-### 7. Count Products by Type
-
-**VERIFIED WORKING**
+### Count Products by Type
 
 ```graphql
-productTypes(limit: 10) {
-  name
-  definition
-  productsAggregate {
-    _count
-  }
+productTypes(limit: 50) {
+  name definition
+  productsAggregate { _count }
 }
 ```
 
-### 8. Social Media Inventory
+### Social Media Inventory
 
 ```graphql
 profileInfos(where: {name: {_eq: "Uniswap"}}) {
@@ -627,11 +673,24 @@ profileInfos(where: {name: {_eq: "Uniswap"}}) {
 }
 ```
 
-**Social platforms tracked:**
+### Profile Comparison
 
-- Twitter/X, Discord, Telegram, GitHub, LinkedIn
-- Reddit, YouTube, Instagram, TikTok
-- Warpcast, Bluesky, Mastodon, Threads
+```graphql
+{
+  phantom: profileInfos(where: {name: {_eq: "Phantom"}}) {
+    name
+    root {
+      products { name productType { name slug } productStatus { name slug } }
+    }
+  }
+  metamask: profileInfos(where: {name: {_eq: "MetaMask"}}) {
+    name
+    root {
+      products { name productType { name slug } productStatus { name slug } }
+    }
+  }
+}
+```
 
 ---
 
@@ -652,207 +711,28 @@ products(
     ]
   }
 ) {
-  name
-  description
+  name description
   productType { name slug }
   productStatus { name slug }
   launchDate
 }
 ```
 
-### Cross-Entity Relationships
+### Cross-Entity: L2 Blockchains with Native Tokens
 
 ```graphql
-# All L2 blockchains and their native tokens
 products(where: {productType: {slug: {_eq: "l2"}}}) {
-  name
-  description
+  name description
   productType { name slug }
   root {
     assets(where: {assetTypeId: {_eq: "1"}}) {
-      name
-      ticker
-      description
+      name ticker description
     }
   }
 }
 ```
 
-### URL-Based Discovery
-
-```graphql
-# Find profiles associated with a domain
-profileInfos(where: {urls: {url: {_like: "%solana.com%"}}}) {
-  name
-  urls { url urlType { name } }
-}
-
-# Find products associated with a domain
-products(where: {urls: {url: {_like: "%solana.com%"}}}) {
-  name
-  urls { url urlType { name } }
-  root { profileInfos { name } }
-}
-```
-
-### Asset Derivative Chains
-
-```graphql
-# All liquid staking tokens (LSTs)
-assets(where: {assetType: {slug: {_eq: "liquid_staking_tokens_lsts"}}}) {
-  name
-  ticker
-  description
-  assetType { name slug }
-}
-```
-
-### Ecosystem Analysis — Finding Products on a Chain
-
-When querying a blockchain ecosystem, always start by finding the chain's Product ID
-via its Profile. Then use **two complementary methods** to find ecosystem products.
-
-**Step 1 (always): Profile → L1/L2 Product ID**
-
-```graphql
-profileInfos(where: {name: {_eq: "Solana"}}) {
-  name
-  root {
-    products(where: {productType: {slug: {_in: ["l1", "l2"]}}}) {
-      id
-      name
-    }
-  }
-}
-# Result: Solana Mainnet → id: "22"
-```
-
-**Method A — `supportsProducts` (broader, recommended first)**
-
-Products declare which other products they support. Captures ecosystem membership
-even without on-chain deployments (data platforms, trading bots, analytics, etc.).
-
-```graphql
-products(
-  where: {
-    supportsProducts: {
-      supportsProductId: {_eq: "22"}
-    }
-  }
-  limit: 20
-) {
-  name
-  productType { name slug }
-  root { profileInfos { name } }
-}
-```
-
-**How `supportsProducts` works:**
-- Each product has a `supportsProducts` array of relationships
-- `productId` = the product itself, `supportsProductId` = the product it supports
-- To find an ecosystem: filter where `supportsProductId` = the chain's product ID
-
-**Method B — `productDeployments` (on-chain only)**
-
-Products with smart contracts deployed on the chain. Narrower — only verified on-chain
-deployments, but includes contract addresses.
-
-```graphql
-products(
-  where: {
-    productDeployments: {
-      smartContractDeployment: {
-        deployedOnProduct: {name: {_eq: "Solana Mainnet"}}
-      }
-    }
-  }
-  limit: 20
-) {
-  name
-  productType { name slug }
-  productDeployments {
-    smartContractDeployment {
-      deployedOnProduct { name }
-      smartContracts { address }
-    }
-  }
-}
-```
-
-**When to use which:**
-- **`supportsProducts`** = broad ecosystem view (supports the chain in any way)
-- **`productDeployments`** = on-chain footprint (has smart contracts deployed on the chain)
-- Use both together for a complete picture
-
-**Counting product types in an ecosystem:**
-
-```graphql
-productTypes {
-  name
-  productsAggregate(
-    filter_input: {
-      where: {supportsProducts: {supportsProductId: {_eq: "22"}}}
-    }
-  ) { _count }
-}
-```
-
-### Asset Ecosystem — Using `productAssetRelationships`
-
-To find which products interact with a specific asset, use `productAssetRelationships`.
-This is the asset-centric equivalent of ecosystem queries.
-
-```graphql
-productAssetRelationships(
-  where: {asset: {ticker: {_eq: "SOL"}}}
-  limit: 20
-) {
-  product {
-    name
-    productType { name slug }
-    root { profileInfos { name } }
-  }
-  asset { name ticker }
-  assetSupportType { name }
-}
-```
-
-**`assetSupportType` values:**
-- **Native to** — blockchain's native token
-- **Supported by** — protocol integration/listing
-- **Governance** — voting/governance token
-- **Managed by** — token issuer
-- **Utility** — required for product usage
-
-### Profile Comparison
-
-```graphql
-# Side-by-side comparison
-{
-  phantom: profileInfos(where: {name: {_eq: "Phantom"}}) {
-    name
-    root {
-      products {
-        name
-        productType { name slug }
-        productStatus { name slug }
-      }
-    }
-  }
-  metamask: profileInfos(where: {name: {_eq: "MetaMask"}}) {
-    name
-    root {
-      products {
-        name
-        productType { name slug }
-        productStatus { name slug }
-      }
-    }
-  }
-}
-```
-
-### Full-Featured Query Example
+### Full-Featured Query with Ordering
 
 ```graphql
 products(
@@ -863,19 +743,47 @@ products(
       {launchDate: {_is_null: false}}
     ]
   }
-  order_by: [
-    { launchDate: Desc }
-    { name: Asc }
-  ]
+  order_by: [{ launchDate: Desc }, { name: Asc }]
   limit: 5
 ) {
-  name
-  launchDate
-  description
+  name launchDate description
   productType { name slug }
   productStatus { name slug }
+  root { profileInfos { name } }
+}
+```
+
+### Event/Conference Analysis via Tags
+
+```graphql
+# Who attended Breakpoint 2025 and what do they do?
+profileTags(where: {tag: {name: {_eq: "Breakpoint 25 Attendee"}}}, limit: 50) {
   root {
-    profileInfos { name }
+    profileInfos {
+      name descriptionShort
+      profileSector { name }
+      profileType { name }
+    }
+  }
+}
+```
+
+### Stablecoin Ecosystem Query
+
+```graphql
+# Find all products that accept payments in USDC
+productAssetRelationships(
+  where: {
+    _and: [
+      {asset: {ticker: {_eq: "USDC"}}},
+      {assetSupportType: {slug: {_eq: "payment_accepted_by"}}}
+    ]
+  }
+  limit: 20
+) {
+  product {
+    name productType { name }
+    root { profileInfos { name } }
   }
 }
 ```
@@ -884,85 +792,45 @@ products(
 
 ## Filter Reference
 
-| Filter | GraphQL Syntax | Example |
-|--------|---------------|---------|
-| Name (exact) | `{name: {_eq: "Jupiter"}}` | Exact match |
-| Name (contains) | `{name: {_like: "%wallet%"}}` | Substring search |
-| Ticker | `{ticker: {_eq: "SOL"}}` | Asset ticker |
-| Product Type (recommended) | `{productType: {slug: {_eq: "decentralised_exchange"}}}` | By type slug |
-| Status (recommended) | `{productStatus: {slug: {_eq: "live"}}}` | By status slug |
-| Multiple conditions | `{_and: [{...}, {...}]}` | AND conditions |
-| Alternative conditions | `{_or: [{...}, {...}]}` | OR conditions |
+| Filter | Syntax | Example |
+|--------|--------|---------|
+| Exact match | `{name: {_eq: "Jupiter"}}` | Name equals |
+| Contains | `{name: {_like: "%wallet%"}}` | Substring search |
+| In list | `{slug: {_in: ["l1", "l2"]}}` | Multiple values |
+| AND | `{_and: [{...}, {...}]}` | All conditions |
+| OR | `{_or: [{...}, {...}]}` | Any condition |
 | Null check | `{field: {_is_null: false}}` | Non-null only |
+| By slug | `{productType: {slug: {_eq: "wallet"}}}` | Recommended for enums |
 
 ---
 
 ## Troubleshooting
 
-### Query Errors
+### Common Errors
 
-**"Field not found" errors:**
-
-- Check field names against schema
+**"Field not found":**
 - Use `profileInfos` not `profiles`
 - Use `products` not `product`
 - Use nested paths: `root { profileInfos { name } }`
+- Check field names with `get-tgs(action: "schema", name: "...")`
 
 **"Invalid where clause":**
-
 - Ensure proper nesting: `{field: {_operator: value}}`
 - Use `_like` with wildcards: `"%value%"`
-- `_ilike` is NOT supported, use `_like` instead
+- `_ilike` is NOT supported — use `_like`
 
-**Timeout errors:**
+**No results:**
+1. Broaden search with `%partial%` instead of exact match
+2. Check spelling carefully
+3. Verify you're querying the right entity type
+4. Use `get-tgs` to confirm valid enum values
 
-- Reduce query complexity
-- Add limits to unbounded queries
-- Break large queries into smaller chunks
+### Known Limitations
 
-### Search Not Finding Results
-
-1. **Broaden search**: Use `%partial%` instead of exact match
-2. **Check spelling**: "Ethereum" not "Etherium", "Phantom" not "Fantom"
-3. **Use correct entity**: Products use `products`, assets use `assets`, profiles use `profileInfos`
-4. **Verify status**: Filter by `productStatus: {slug: {_eq: "live"}}` for active products
-
-### Common Pitfalls
-
-- Use `productType` not `type`
-- Use `_count` not `count` for aggregates
-- Roots don't have `name` — use `slug` or `urlMain`
-- Products connect to organizations via `root`, not directly to entities
-
----
-
-## Known Limitations
-
-1. **`mcp__grid__find`**: Supports `products`, `assets`, and `profiles` lenses — use `mcp__grid__query` for socials and other entities
-2. **URL filtering**: Direct filtering by URL content not fully supported — search by name first, then filter URLs in results
-3. **Social URL filtering**: Search by social handle name, not by full URL
-4. **Case-insensitive search**: `_ilike` is not supported — use `_like` (case-sensitive)
-
-### Workarounds
-
-**For URL-based discovery:**
-
-```graphql
-# Search by name first, then check URLs in results
-profileInfos(where: {name: {_like: "%keyword%"}}) {
-  urls { url urlType { name } }
-}
-```
-
-**For social media discovery:**
-
-```graphql
-# Search by handle name
-socials(where: {name: {_like: "%handle%"}}) {
-  socialType { name }
-  root { profileInfos { name } }
-}
-```
+1. `_ilike` (case-insensitive) is not supported — use `_like`
+2. `find` only supports products, assets, profiles — use `query` for tags, socials, etc.
+3. Direct URL content filtering is limited — search by name first, then check URLs
+4. Social search works by handle name, not full URL
 
 ---
 
@@ -979,33 +847,37 @@ products(where: {productType: {slug: {_eq: "decentralised_exchange"}}})
 assets(where: {assetType: {slug: {_eq: "stablecoin"}}})
 products(where: {productStatus: {slug: {_eq: "live"}}})
 
-# Get slug values
-productTypes { name slug }
-assetTypes { name slug }
-productStatuses { name slug }
+# Tags
+profileTags(where: {tag: {name: {_eq: "Breakpoint 25 Attendee"}}})
+profileTags(where: {tag: {tagType: {slug: {_eq: "event"}}}})
 
-# URL search (workaround)
-profileInfos(where: {name: {_like: "%keyword%"}}) {
-  urls { url urlType { name } }
-}
+# Profile relationships
+root { childRootRelationships { childRoot { profileInfos { name } } } }
+root { parentRootRelationships { parentRoot { profileInfos { name } } } }
 
-# Social search by handle
-socials(where: {name: {_like: "%handle%"}}) {
-  socialType { name slug }
-  root { profileInfos { name } }
-}
+# Media
+root { media { url mediaType { name } } }
 
-# Multi-criteria with slugs
-_and: [
-  {productType: {slug: {_eq: "wallet"}}},
-  {productStatus: {slug: {_eq: "live"}}}
-]
-_or: [
-  {productType: {slug: {_eq: "l1"}}},
-  {productType: {slug: {_eq: "l2"}}}
-]
+# Grid Rank
+root { gridRank { score } }
+
+# Social search
+socials(where: {name: {_like: "%handle%"}})
+
+# Multi-criteria
+_and: [{...}, {...}]
+_or: [{...}, {...}]
 
 # Pattern matching
 _like: "%value%" (contains)
 _eq: "exact" (exact match)
+_in: ["a", "b"] (multiple values)
+```
+
+```
+# Schema discovery (use get-tgs)
+get-tgs(action: "lenses")                       # All queryable areas
+get-tgs(action: "enums")                         # All enum types
+get-tgs(action: "enum", name: "productTypes")    # Specific enum values
+get-tgs(action: "schema", name: "products")      # Full field schema
 ```

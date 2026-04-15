@@ -1,0 +1,20 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "the-grid",
+  "description": "Query The Grid's Web3 knowledge graph — 3,000+ profiles, 6,400+ products, 1,600+ assets via GraphQL or natural language. No API key required.",
+  "owner": {
+    "name": "The Grid Data",
+    "email": "dev@thegrid.id"
+  },
+  "plugins": [
+    {
+      "name": "grid-search",
+      "description": "Query The Grid's Web3 knowledge graph — search profiles, products, assets, and smart contracts across 100+ chains via GraphQL or natural language. No API key required.",
+      "version": "1.1.0",
+      "source": "./grid-search",
+      "category": "database",
+      "homepage": "https://thegrid.id/mcp",
+      "tags": ["web3", "blockchain", "graphql", "data", "ai-agent"]
+    }
+  ]
+}

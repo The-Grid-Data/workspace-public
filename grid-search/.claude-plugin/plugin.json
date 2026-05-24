@@ -1,7 +1,7 @@
 {
   "name": "grid-search",
   "description": "Query The Grid database — search profiles, products, assets, tags, relationships, and smart contracts via MCP tools",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "author": {
     "name": "The Grid Data",
     "email": "dev@thegrid.id"

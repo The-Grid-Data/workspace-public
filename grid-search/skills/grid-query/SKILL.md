@@ -10,13 +10,226 @@ description: >
 
 # Grid Search — Query Guide
 
-This skill provides the query patterns and field reference for searching
-The Grid's Web3 database using the MCP tools.
+**TGS — The Grid Schema** is the data structure for querying The Grid's
+API. This skill is the operating guide: the patterns and field reference
+for searching that schema via the MCP tools below.
+
+TGS is read by both humans (Discovery, SEO) and machines (MCP clients,
+agents, partner integrations). Every record has to serve both — the
+schema is *queried, not curated*: types, statuses, and relationships are
+load-bearing so that queries return correct answers without per-row
+babysitting.
 
 The Grid contains structured data on 3,000+ Web3 profiles (companies,
 protocols, DAOs), 6,400+ products (DEXs, wallets, bridges), 1,600+ assets
-(tokens, coins, stablecoins), and the relationships between them — plus
-tags, media, attributes, and profile hierarchies.
+(tokens, coins, stablecoins), and the relationships between them.
+
+**Further reading.** Local references live in
+[references/grid-mcp-guide.md](references/grid-mcp-guide.md) (the long-form
+query reference) and `public/references/` (`tgs-field-descriptions.md`,
+`tgs-json-structure.md`). The public ER diagram is at
+[dbdiagram.io/d/TGS10-PUBLIC](https://dbdiagram.io/d/TGS10-PUBLIC-68c982ab1ff9c616bdf66b03).
+The canonical TGS narrative (team access) is on Slite under
+*TGS Data Model* and *Lenses*.
+
+## Vocabulary
+
+Short glosses for the terms the Concepts section relies on. Each entry
+points at the source of truth for the deep version.
+
+- **Lens.** *Different perspectives or filters through which you can view
+  Web3 data, similar to how a camera lens focuses on specific subjects.*
+  The 11 canonical lenses are **Profiles** (organisations, protocols,
+  DAOs), **Products** (their offerings — DEX, wallet, bridge, L1/L2),
+  **Assets** (tokens, coins, stablecoins), **Entities** (legal structures
+  behind a profile — foundation, corporation), **Smart Contract
+  Deployments** (on-chain footprint — contract addresses, networks,
+  standards), **Socials**, **URLs**, **Media**, **Attributes** (typed
+  key-value extras, narrowly scoped), **Internal Helpers** (system
+  wiring, incl. the `roots` and `gridRank` tables), and **Geography**.
+  See the lens table in
+  [references/grid-mcp-guide.md](references/grid-mcp-guide.md) (lines
+  99–111). The Slite *Lenses* page has a longer walkthrough.
+
+- **Profile vs `profileInfos`.** `profiles` is the lens (the query area);
+  `profileInfos` is the table inside it that holds name, descriptions,
+  type, status, sector — the per-profile metadata. **Always query
+  `profileInfos`, not `profiles` directly.** That's why every example in
+  this skill opens with `profileInfos(where: ...)`.
+
+- **Root.** *Top-level profile records — the canonical identity anchor
+  for every profile in the Grid. All other data hangs off a root.*
+  (See `public/references/tgs-field-descriptions.md`.) You traverse via
+  `.root` from `profileInfos`; there is no top-level `rootId` column.
+
+- **Slug.** Human-readable, stable enum identifier (e.g.
+  `decentralised_exchange`). Filter on slugs, not numeric IDs — slugs
+  survive ID churn and are self-documenting.
+
+- **Classification layer.** The collective name for the `*Types`,
+  `*Statuses`, and `*Tags` enum tables that constrain each lens
+  (`profileTypes`, `productStatuses`, `assetSupportTypes`, `tags`, etc.).
+  Every primary lens has at least one. They're the load-bearing handle
+  for query-driven correctness: when a query returns the wrong rows, the
+  fix is almost always at the classification layer, not the content.
+
+- **Cluster.** *Local term in this skill* (not in canonical TGS docs).
+  We use **cluster** for *the root plus everything that hangs off it* —
+  `products`, `assets`, `entities`, `socials`, `media`, `urls`, plus
+  `rootRelationships` in both directions. It's the unit of data you need
+  to read together to answer most questions about a real-world entity.
+
+- **Graph.** The directed connections that link clusters together:
+  `rootRelationships` between roots, `supportsProducts` between products,
+  `productAssetRelationships`, and the deployment chains
+  (`productDeployments` / `assetDeployments` → `smartContractDeployments`
+  → `smartContracts`).
+
+## Concepts
+
+Read these before querying or writing. The patterns below assume them.
+Each concept is stated as: **what it is → why it's true → how it fails →
+what to do differently**. Knowing *why* lets you handle cases the patterns
+don't anticipate.
+
+### 1. Two consumers, one schema
+
+The intro stated the principle; this is its operational consequence.
+Discovery, SEO crawlers, MCP clients, and partner integrations
+(Tether, Solana pay.sh, Stablecoin Standard, GridTree) all read the
+same records — every field has to serve both eyes and machines.
+
+*Failure mode:* a fix that improves how a profile renders in the UI but
+breaks the field shape a partner integration depends on, or vice versa.
+
+*Action:* when changing data or classifications, check both surfaces.
+A "small fix" to a name, status, or relationship is a write to a
+machine-readable contract, not just a page edit.
+
+### 2. Queried, not curated
+
+The schema is meant to be self-consistent so queries return correct answers
+without per-row babysitting. If you find yourself reasoning "this one is
+special", the schema is wrong, not the row.
+
+*Failure mode:* reaching for the `attributes` lens to encode something
+that should be a structural field. Attributes drift; structural fields
+don't.
+
+*Action:* before writing a workaround, ask whether the right answer is a
+new value in the classification layer (a new type, status, or
+relationship) rather than freeform metadata. Use `attributes` only for
+genuinely freeform data that has no place in fixed fields.
+
+### 3. A profile is a record, not a page
+
+One real-world entity = one **root** (see Vocabulary). The root is the
+load-bearing identifier; `profileInfos` is the table that carries the
+human-readable metadata under it; URLs, socials, media all *derive from*
+the root rather than duplicating it. This is also why every query in
+this skill opens with `profileInfos(where: ...)` — that's the entry door
+into a root.
+
+*Failure mode:* same entity appears under two roots, two slugs, or two
+URLs — page authority splits, agent answers diverge, the same fix has to
+land twice.
+
+*Action:* before creating a new profile, search `profileInfos` for the
+name and check `rootRelationships` for the entity under another root. Two
+records for the same entity is the bug.
+
+### 4. The unit of meaning is the cluster
+
+A profile alone is incomplete. The **cluster** (see Vocabulary) is the
+unit you need to read together — the root plus everything that hangs
+off it. Read all of them before drawing a conclusion.
+
+*Failure mode:* reporting "Tether is missing entities" when the
+foundation is a linked profile via `relationshipType: "Managed by"`.
+Reporting "Tether has no USDT0" when USDT0 is a child profile with its
+own `assets`. Audits that re-find the same gaps every time.
+
+*Action:* when auditing or answering "what does X have", fetch the whole
+cluster. The pattern below binds `$rootId` to the root's `id` (resolved
+by an outer query or inlined as a literal — there is no top-level
+`rootId` column to filter on):
+
+```graphql
+{
+  profileInfos(where: {name: {_eq: "Tether"}}) {
+    name root {
+      id
+      entities { name entityType { name } country }
+      products { name productType { name } productStatus { name } }
+      assets { name ticker assetType { name } assetStatus { name } }
+      parentRootRelationships: rootRelationships(where: {childRootId: {_eq: $rootId}}) {
+        relationshipType { name }
+        parentRoot { profileInfos { name } }
+      }
+      childRootRelationships: rootRelationships(where: {parentRootId: {_eq: $rootId}}) {
+        relationshipType { name }
+        childRoot { profileInfos { name } products { name } assets { name } }
+      }
+    }
+  }
+}
+```
+
+If a question can be answered without traversing the cluster, you're
+probably answering the wrong question.
+
+### 5. Classification before content
+
+Type, status, and relationship fields are load-bearing; descriptions and
+URLs are downstream of them (see Vocabulary → Classification layer for
+the table inventory).
+
+*Failure mode:* a profile classified as "Network" whose description and
+products read like a "Company". A product typed `decentralised_exchange`
+whose `productAssetRelationships` look like a lending protocol. Mismatch
+between type and content is the bug, and it's the type that's usually
+wrong.
+
+*Action:* when reading, trust the classification layer over the
+description. When writing, set type/status/relationships first, then
+fill content to match. Use `get-tgs(action: "enum", name: "...")` to
+confirm valid values before guessing.
+
+### 6. Status is a claim about now
+
+Status (one `*Statuses` table per primary lens — profile, product, asset,
+social) is a claim about the *current* state of the entity, not a
+default. "Live" must be verifiable today. "Discontinued" or "Sunset"
+must reflect that the thing actually stopped. "Not set" is never an
+acceptable resting state.
+
+*Failure mode:* a product sunset months ago that still reads `Live`. A
+profile with status `not set` because nobody verified. Stale status is a
+quiet bug — queries return wrong results without any error.
+
+*Action:* when writing a status, name the verification source (URL, dated
+note, social post). When reading, treat any `Live` older than ~90 days
+without a recent update as a candidate for re-verification. When in doubt
+about `not set`, set it correctly before saving.
+
+### 7. The graph IS the product
+
+The **graph** (see Vocabulary) isn't metadata bolted on the side — it's
+the answer to most interesting questions. `rootRelationships` link
+profiles to profiles; `supportsProducts` and `productAssetRelationships`
+link the typed relationship lenses; the deployment chains
+(`productDeployments` / `assetDeployments` → `smartContractDeployments`)
+link on-chain footprint to the rest.
+
+*Failure mode:* an orphan. A subsidiary profile with no link to its
+parent. An asset issued by a profile but not connected to it. A product
+that supports a chain but isn't in `supportsProducts`. Orphans break
+every consumer that traverses the graph (which is most of them).
+
+*Action:* when you create or fix an entity, ask "what else does this
+connect to?" and write the relationship. When you read and the answer
+looks empty, check whether the answer is actually one hop away in the
+graph.
 
 ## Tools
 
@@ -55,8 +268,14 @@ get-tgs(action: "schema", name: "profiles")   # Get full profile schema
 
 ## Core Data Model
 
+Reading from the **root** outward — this is the *cluster* the Vocabulary
+defines. Lenses that hang directly off the root are first-class
+children; enum tables (tags, types, statuses) attach via join tables and
+appear at the bottom.
+
 ```
-Profile (Company/Protocol/DAO)
+Root
+  |-- profileInfos (name, descriptions, type, status, sector)
   |-- Products (DEX, Wallet, Bridge, L1, L2, AI Agent, etc.)
   |     |-- supportsProducts (links to other products, e.g. which chains)
   |     |-- productAssetRelationships (which assets it interacts with)
@@ -67,18 +286,22 @@ Profile (Company/Protocol/DAO)
   |     +-- derivativeAssets, URLs, Media
   |-- Entities (Legal structures — Foundation, Corporation, etc.)
   |-- Socials (Twitter/X, Discord, Telegram, GitHub, etc.)
-  |-- Tags (Event attendance, ecosystem membership, community, tech)
   |-- Media (Icons, Logos, Headers)
-  |-- Attributes (Bluechip ratings, ChainIDs)
-  +-- Root Relationships (parent/subsidiary, acquisitions)
+  |-- URLs (Website, Docs, App, Blog, etc.)
+  |-- Attributes (Bluechip ratings, ChainIDs — narrow key-value extras)
+  |-- gridRank (importance score)
+  +-- rootRelationships (parent/child, acquisitions — links to other roots)
+
+profileTags  ─join→  tags          (event, community, tech, paradigm…)
 ```
 
-**Key relationships:**
-- `root` connects everything to a profile — products, assets, socials all hang off a root
-- `supportsProducts` links products to other products (ecosystem membership)
-- `productAssetRelationships` links products to assets they interact with
-- `rootRelationships` links profiles to each other (parent/child, acquisitions)
-- `profileTags` links profiles to tags (events, communities, tech paradigms)
+**Key relationships (the graph):**
+- `root` is the anchor — every cluster member traces back to it.
+- `supportsProducts` links products to products (ecosystem membership).
+- `productAssetRelationships` links products to assets.
+- `rootRelationships` links roots to roots (parent/child, acquisitions).
+- `profileTags` links roots to entries in the `tags` enum table —
+  tags are *not* a peer lens; they attach via this join.
 
 ## Quick Start Patterns
 

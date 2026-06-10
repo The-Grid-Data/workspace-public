@@ -1,7 +1,7 @@
 # Grid Search Plugin
 
-Query The Grid's Web3 database directly from Claude Code. Search 3,000+ profiles
-(companies, protocols, DAOs), 6,400+ products (DEXs, wallets, bridges), 1,600+
+Query The Grid's Web3 database directly from Claude Code. Search thousands of
+profiles (companies, protocols, DAOs), products (DEXs, wallets, bridges), and
 assets (tokens, coins, stablecoins), and the relationships between them — plus
 tags, media, attributes, and profile hierarchies.
 
@@ -78,7 +78,7 @@ browse enum values, and get full JSON schemas — all without writing GraphQL.
 ```
 get-tgs action=lenses                      # List all queryable areas
 get-tgs action=enums                       # List all enum types with counts
-get-tgs action=enum name=productTypes      # Get all 118 product type values
+get-tgs action=enum name=productTypes      # List every product type value
 get-tgs action=schema name=profiles        # Get full profile JSON schema
 ```
 
@@ -99,9 +99,10 @@ Includes a full reference guide at `skills/grid-query/references/grid-mcp-guide.
 
 ### tgs-enums
 
-Lists all 21 queryable enum tables with value counts and ready-to-use query patterns.
-Covers product types (118), asset types (16), profile sectors (28), tags (50),
-tag types (8), and all status/relationship/deployment enums.
+Lists every queryable enum table with ready-to-use query patterns — product
+types, asset types, profile sectors, tags, tag types, and all
+status/relationship/deployment enums. Run `get-tgs(action: "enums")` for current
+value counts (they grow over time).
 
 ## Usage
 

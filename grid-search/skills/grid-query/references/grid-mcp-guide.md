@@ -30,7 +30,7 @@ get-tgs(action: "lenses")
 # What enums exist and how many values each has?
 get-tgs(action: "enums")
 
-# What are all 118 product types?
+# What product types exist?
 get-tgs(action: "enum", name: "productTypes")
 
 # What fields does the products lens have?
@@ -247,6 +247,25 @@ profileInfos(where: {name: {_eq: "Phantom"}}) {
 }
 ```
 
+**Bulk / paged pulls.** To pull the whole `socials` table (e.g. a partner ETL),
+don't request it unbounded — page with `limit` + `offset` and a stable
+`order_by`, advancing `offset` until a page returns fewer rows than `limit`.
+Filter to the slice you actually need where possible (by `socialType`, status,
+or parent) instead of dumping everything:
+
+```graphql
+# Page N: limit=500, offset=N*500 — stable order is required for correct paging
+socials(
+  where: {socialType: {slug: {_eq: "github"}}}
+  order_by: {id: Asc}
+  limit: 500
+  offset: 0
+) {
+  id name socialType { slug } socialStatus { slug }
+  root { profileInfos { name } }
+}
+```
+
 ### Pattern 5: Search by Tags
 
 Tags categorize profiles by events, ecosystems, communities, tech paradigms, and more.
@@ -286,7 +305,7 @@ tags(limit: 50) {
 }
 ```
 
-**Tag types:** Event, Community, Tech, Paradigm, Geography, Hackathon, Report
+**Tag types** (run `get-tgs(action: "enum", name: "tagTypes")` for the current set): Event, Community, Tech, Paradigm, Geography, Hackathon, Report
 
 **To get the full tag list:** `get-tgs(action: "enum", name: "tags")`
 
@@ -313,7 +332,7 @@ products(where: {urls: {url: {_like: "%solana.com%"}}}) {
 
 Profiles can be linked hierarchically via `rootRelationships`.
 
-**Relationship types:** Acquired by, Associated with, Managed by, Product of
+**Relationship types** (run `get-tgs(action: "enum", name: "rootRelationshipTypes")` for the current set): Acquired by, Associated with, Managed by, Product of
 
 ### Find Children (Subsidiaries, Sub-brands)
 
@@ -363,7 +382,12 @@ rootRelationships(
 
 ## Blockchain Ecosystem Queries
 
-### Step 1: Find the Chain's Product ID
+### Step 1: Identify the Chain's Product
+
+Filter by the chain product's **name**, not a numeric id. Ids are not stable
+(newer rows get hash ids like `id1739677005-…`), so a hardcoded `"22"` rots
+silently. Only resolve the id when you need to reuse it across queries — and
+resolve it live, never from memory:
 
 ```graphql
 profileInfos(where: {name: {_eq: "Solana"}}) {
@@ -374,16 +398,16 @@ profileInfos(where: {name: {_eq: "Solana"}}) {
     }
   }
 }
-# Result: Solana Mainnet -> id: "22"
 ```
 
 ### Method A — `supportsProducts` (broad ecosystem view)
 
 Products that support the chain in any way — even without on-chain deployments.
+Filter through the join to the supported product's name:
 
 ```graphql
 products(
-  where: { supportsProducts: { supportsProductId: {_eq: "22"} } }
+  where: { supportsProducts: { supportsProduct: {name: {_eq: "Solana Mainnet"}} } }
   limit: 20
 ) {
   name
@@ -425,7 +449,7 @@ productTypes {
   name
   productsAggregate(
     filter_input: {
-      where: {supportsProducts: {supportsProductId: {_eq: "22"}}}
+      where: {supportsProducts: {supportsProduct: {name: {_eq: "Solana Mainnet"}}}}
     }
   ) { _count }
 }
@@ -452,7 +476,7 @@ productAssetRelationships(
 }
 ```
 
-**`assetSupportType` values:**
+**`assetSupportType` values** (run `get-tgs(action: "enum", name: "assetSupportTypes")` for the current set):
 - **Native to** — blockchain's native token (e.g. SOL for Solana)
 - **Supported by** — protocol-level integration (listing, collateral, oracle feed)
 - **Governance** — voting/governance token
@@ -468,7 +492,7 @@ productAssetRelationships(
 
 Get logos, icons, and header images for any entity.
 
-**Media types:** Icon, Logo on white, Logo on black, Header
+**Media types** (run `get-tgs(action: "enum", name: "mediaTypes")` for the current set): Icon, Logo on white, Logo on black, Header
 
 ```graphql
 # Get all media for a profile
@@ -507,23 +531,45 @@ attributes(
 }
 ```
 
-**Current attribute types:** Bluechip Stablecoin Rating, ChainID - CAIP-2
-
-Use `get-tgs(action: "enum", name: "attributeTypes")` to check for new ones.
+Attribute types are few and change over time (e.g. Bluechip Stablecoin Rating,
+ChainID - CAIP-2). Always run `get-tgs(action: "enum", name: "attributeTypes")`
+for the current set rather than assuming this list is complete.
 
 ---
 
 ## Grid Rank
 
 Importance scoring based on ecosystem connectivity (how many other profiles, products,
-and assets a profile is linked to). Higher is better.
+and assets a profile is linked to). Two fields:
+
+- **`score`** — raw connectivity magnitude. Higher is better; unbounded
+  (Ethereum ≈ 4,799 at the top, long-tail profiles in the low tens).
+- **`ranking`** — ordinal position on the global leaderboard. **`1` = most
+  important** (Ethereum #1, Solana #2, Bitcoin #3). Ascending `ranking`
+  corresponds to descending `score`.
+
+Use `ranking` for leaderboard position / top-N questions; `score` for raw
+magnitude and relative comparison.
 
 ```graphql
 profileInfos(where: {name: {_eq: "Uniswap"}}) {
   name
-  root { gridRank { score } }
+  root { gridRank { score ranking } }   # e.g. { score: 292, ranking: 17 }
 }
 ```
+
+**Top profiles by rank** (sort `ranking` ascending):
+
+```graphql
+gridRank(order_by: {ranking: Asc}, limit: 10) {
+  ranking score
+  root { profileInfos { name } }
+}
+```
+
+Note: `ranking` is a live field not yet reflected in
+`get-tgs(action: "schema", name: "gridRank")` (which documents only `score`) —
+it still resolves when queried.
 
 ---
 
@@ -588,7 +634,7 @@ profileInfos(where: {name: {_eq: "Phantom"}}) {
   urls { url urlType { name } }
   root {
     slug
-    gridRank { score }
+    gridRank { score ranking }
     products {
       name description
       productType { name } productStatus { name }
@@ -628,7 +674,7 @@ products(where: {productType: {slug: {_eq: "decentralised_exchange"}}}, limit: 5
 - AI Agent: `ai_agent`
 - AI Agent Platform: `ai_agent_platform`
 
-There are 118 product types — use `get-tgs(action: "enum", name: "productTypes")` for the full list.
+This is a partial, illustrative list — use `get-tgs(action: "enum", name: "productTypes")` for the full, current set.
 
 ### Profile Discovery by Sector
 
@@ -646,7 +692,7 @@ profileInfos(
 }
 ```
 
-There are 28 profile sectors — use `get-tgs(action: "enum", name: "profileSectors")` for the full list.
+Use `get-tgs(action: "enum", name: "profileSectors")` for the full, current list of sectors.
 
 ### Count Products by Type
 
@@ -725,7 +771,7 @@ products(where: {productType: {slug: {_eq: "l2"}}}) {
   name description
   productType { name slug }
   root {
-    assets(where: {assetTypeId: {_eq: "1"}}) {
+    assets(where: {assetType: {slug: {_eq: "currency"}}}) {
       name ticker description
     }
   }
@@ -804,15 +850,105 @@ productAssetRelationships(
 
 ---
 
+## Anti-patterns
+
+Each of these is a real, observed misuse. The "good" column is always cheaper
+and more correct.
+
+### 1. GraphQL introspection instead of `get-tgs`
+
+DON'T send `__schema` / `__type` through `query` to discover shape:
+
+```graphql
+query { __type(name: "products") { fields { name } } }   # slow, noisy, easy to misread
+```
+
+DO use the purpose-built tool — it IS the source of truth:
+
+```
+get-tgs(action: "schema", name: "products")   # full field schema
+get-tgs(action: "lenses")                       # all queryable areas
+```
+
+### 2. Bulk enum fetch via a giant GraphQL query
+
+DON'T hand-roll a multi-table enum dump:
+
+```graphql
+query { productTypes { id name slug definition } }   # works, but reinvents get-tgs
+```
+
+DO ask the schema tool — one call, const/title/description, always current:
+
+```
+get-tgs(action: "enum", name: "productTypes")
+```
+
+### 3. Querying one lens in isolation to answer an entity question
+
+DON'T enter through a leaf lens when the question is "what does <entity> have" —
+you lose the rest of the cluster (entities, assets, relationships) and miss
+linked children:
+
+```graphql
+products(where: {name: {_eq: "Jupiter"}})   # only products; the cluster is invisible
+```
+
+DO enter through `profileInfos` and traverse the **root** (see *Concepts → the
+unit of meaning is the cluster* in SKILL.md):
+
+```graphql
+profileInfos(where: {name: {_eq: "Jupiter"}}) {
+  name
+  root {
+    products { name productType { name } }
+    assets { name ticker }
+    entities { name entityType { name } }
+  }
+}
+```
+
+(Direct `products(where: ...)` / `assets(where: ...)` queries are correct for
+*cross-entity* filters like "all live DEXs" — the anti-pattern is only when the
+question is scoped to one named entity.)
+
+### 4. `_ilike` instead of `_like`
+
+DON'T use `_ilike` — it is **not supported** and the query fails:
+
+```graphql
+products(where: {name: {_ilike: "%swap%"}})   # error
+```
+
+DO use `_like` with `%wildcards%` (and broaden casing yourself if needed):
+
+```graphql
+products(where: {name: {_like: "%swap%"}})
+```
+
+---
+
 ## Troubleshooting
 
 ### Common Errors
 
 **"Field not found":**
-- Use `profileInfos` not `profiles`
-- Use `products` not `product`
-- Use nested paths: `root { profileInfos { name } }`
-- Check field names with `get-tgs(action: "schema", name: "...")`
+
+The query field is **not** always the singular/plural you'd guess from English.
+Read the real names from `get-tgs(action: "lenses")` rather than inferring them.
+Common wrong guesses observed in the wild:
+
+| ❌ Wrong (guessed) | ✅ Correct (queryable) |
+|--------------------|------------------------|
+| `profiles` | `profileInfos` (the table with name/type/status; `profiles` is the *lens*, not a query field) |
+| `profileInfo` | `profileInfos` (plural) |
+| `productInfos` | `products` |
+| `product` | `products` |
+| `profileInfoSocials` | `socials` (reached via `root { socials }`) |
+| `gridRanks` | `gridRank` (singular) |
+
+Also: use nested paths (`root { profileInfos { name } }`) and confirm field
+names with `get-tgs(action: "schema", name: "...")`.
 
 **"Invalid where clause":**
 - Ensure proper nesting: `{field: {_operator: value}}`
@@ -858,8 +994,8 @@ root { parentRootRelationships { parentRoot { profileInfos { name } } } }
 # Media
 root { media { url mediaType { name } } }
 
-# Grid Rank
-root { gridRank { score } }
+# Grid Rank (score = raw magnitude; ranking = leaderboard position, 1 = top)
+root { gridRank { score ranking } }
 
 # Social search
 socials(where: {name: {_like: "%handle%"}})

@@ -20,36 +20,102 @@ schema is *queried, not curated*: types, statuses, and relationships are
 load-bearing so that queries return correct answers without per-row
 babysitting.
 
-The Grid contains structured data on 3,000+ Web3 profiles (companies,
-protocols, DAOs), 6,400+ products (DEXs, wallets, bridges), 1,600+ assets
-(tokens, coins, stablecoins), and the relationships between them.
+The Grid contains structured data on thousands of Web3 profiles (companies,
+protocols, DAOs), products (DEXs, wallets, bridges), and assets (tokens,
+coins, stablecoins), plus the relationships between them. For live totals,
+count directly — e.g. `profileInfosAggregate { _count }` — rather than
+quoting a number that goes stale.
 
-**Further reading.** Local references live in
-[references/grid-mcp-guide.md](references/grid-mcp-guide.md) (the long-form
-query reference) and `public/references/` (`tgs-field-descriptions.md`,
-`tgs-json-structure.md`). The public ER diagram is at
+**Further reading.** The long-form query reference is bundled with this skill at
+[references/grid-mcp-guide.md](references/grid-mcp-guide.md). For field-level
+detail and enum values, query the live schema directly with
+`get-tgs(action: "schema", name: "...")` and `get-tgs(action: "enum", name: "...")`
+— that is the source of truth, not any static file. The public ER diagram is at
 [dbdiagram.io/d/TGS10-PUBLIC](https://dbdiagram.io/d/TGS10-PUBLIC-68c982ab1ff9c616bdf66b03).
 The canonical TGS narrative (team access) is on Slite under
 *TGS Data Model* and *Lenses*.
+
+## Lenses — one entity, many views
+
+A **lens** is one perspective on a single Web3 entity (a company, protocol,
+DAO, network, token issuer, …). The same entity carries many lenses at once;
+each answers a different class of question. You don't query "a row" — you pick
+the lens that matches your question. Every lens hangs off the same `root` (see
+*Concepts → the unit of meaning is the cluster*), so one entity resolves
+consistently across all of them.
+
+> *Analogy (intuition only — the data is Web3 entities, not retail):* if a
+> profile were a physical shop, each lens is a different question you'd ask
+> about it — what's the sign say, what's for sale, how do I pay, is it
+> registered, where are its channels. Don't take "shop" literally; most
+> profiles are protocols, networks, or issuers.
+
+Run `get-tgs(action: "lenses")` for the authoritative current set. The everyday
+lenses:
+
+### Profile lens — the high-level overview
+- **Reveals:** name, profile type, sector, and what the profile does.
+- **Use when:** you need a fast "what is this" before digging deeper.
+- **Query:** `profileInfos` → `name`, `profileType`, `profileSector`,
+  `profileStatus`, `descriptionShort`.
+
+### Product lens — the offerings
+- **Reveals:** what each product does, how it describes itself, what it works
+  with (`supportsProducts`), launch date and status.
+- **Use when:** you need detail on specific tools or services.
+- **Query:** `products` → `productType`, `productStatus`, `launchDate`,
+  `supportsProducts`.
+
+### Asset lens — tokens & currencies
+- **Reveals:** the profile's own tokens, token type and technical details,
+  network compatibility (via deployments). What products *accept or support*
+  lives one hop over in **Product-Asset Relationships**
+  (`productAssetRelationships` → `assetSupportType`, e.g. *Payment Accepted by*).
+- **Use when:** you're researching tokens or checking payment/support.
+- **Query:** `assets` → `ticker`, `assetType`, `assetStatus`, `assetDeployments`.
+
+### Entity lens — legal structure
+- **Reveals:** legal registration, corporate structure, licences/identifiers
+  (LEI, local registration), and geographic presence (country of incorporation).
+- **Use when:** you need to verify legitimacy or do due diligence.
+- **Query:** `entities` → `entityType`, `countryId`, `leiNumber`,
+  `localRegistrationNumber`.
+
+### Socials lens — community channels
+- **Reveals:** official accounts (Twitter/X, Discord, Telegram, GitHub),
+  account status (Active/Inactive), and platform type.
+- **Use when:** you want official channels or to assess community presence.
+- **Query:** `socials` → `socialType`, `name`, `socialStatus`.
+
+### URLs lens — web presence
+- **Reveals:** primary websites, documentation/whitepapers, web apps, blogs,
+  support pages — each typed.
+- **Use when:** you need direct links to resources.
+- **Query:** `urls` → `url`, `urlType`.
+
+### Smart Contract Deployments lens — on-chain footprint
+- **Reveals:** contract addresses, the networks deployed on, token standards
+  (ERC-20, SPL, …), and deployment history.
+- **Use when:** you need technical on-chain information.
+- **Query:** `smartContractDeployments` → `smartContracts { address }`,
+  `assetStandard`, `deployedOnProduct`; reached via a product's
+  `productDeployments` or an asset's `assetDeployments`.
+
+**Three more lenses complete the set:** **Media** (logos, icons, headers),
+**Attributes** (narrow typed extras like ratings or ChainIDs), and **Internal
+Helpers** (the system wiring — `roots`, `gridRank`, `rootRelationships`).
 
 ## Vocabulary
 
 Short glosses for the terms the Concepts section relies on. Each entry
 points at the source of truth for the deep version.
 
-- **Lens.** *Different perspectives or filters through which you can view
-  Web3 data, similar to how a camera lens focuses on specific subjects.*
-  The 11 canonical lenses are **Profiles** (organisations, protocols,
-  DAOs), **Products** (their offerings — DEX, wallet, bridge, L1/L2),
-  **Assets** (tokens, coins, stablecoins), **Entities** (legal structures
-  behind a profile — foundation, corporation), **Smart Contract
-  Deployments** (on-chain footprint — contract addresses, networks,
-  standards), **Socials**, **URLs**, **Media**, **Attributes** (typed
-  key-value extras, narrowly scoped), **Internal Helpers** (system
-  wiring, incl. the `roots` and `gridRank` tables), and **Geography**.
-  See the lens table in
-  [references/grid-mcp-guide.md](references/grid-mcp-guide.md) (lines
-  99–111). The Slite *Lenses* page has a longer walkthrough.
+- **Lens.** A perspective on a single real-world entity — the camera angle
+  you choose to answer a particular question. See the **Lenses — one entity,
+  many views** section above for the full per-lens walkthrough. Note:
+  "Geography" is *not* a lens — it's a `tagTypes` value plus the `countries`
+  enum. **Run `get-tgs(action: "lenses")` for the authoritative, current
+  set** rather than trusting any hand-written list.
 
 - **Profile vs `profileInfos`.** `profiles` is the lens (the query area);
   `profileInfos` is the table inside it that holds name, descriptions,
@@ -58,9 +124,9 @@ points at the source of truth for the deep version.
   this skill opens with `profileInfos(where: ...)`.
 
 - **Root.** *Top-level profile records — the canonical identity anchor
-  for every profile in the Grid. All other data hangs off a root.*
-  (See `public/references/tgs-field-descriptions.md`.) You traverse via
-  `.root` from `profileInfos`; there is no top-level `rootId` column.
+  for every profile in the Grid. All other data hangs off a root.* You
+  traverse via `.root` from `profileInfos`; there is no top-level `rootId`
+  column.
 
 - **Slug.** Human-readable, stable enum identifier (e.g.
   `decentralised_exchange`). Filter on slugs, not numeric IDs — slugs
@@ -260,11 +326,17 @@ This tool lets you explore the full data model without writing GraphQL.
 ```
 get-tgs(action: "lenses")                    # List all queryable lenses
 get-tgs(action: "enums")                     # List all enums with counts
-get-tgs(action: "enum", name: "productTypes") # Get all 118 product type values
+get-tgs(action: "enum", name: "productTypes") # List every product type (const/title/description)
 get-tgs(action: "schema", name: "profiles")   # Get full profile schema
 ```
 
 **Always use `get-tgs` before guessing at field names or enum values.** It is the source of truth.
+
+> **Don't introspect.** If you're about to send a GraphQL `__schema` or
+> `__type` introspection query through `mcp__grid__query`, stop —
+> `get-tgs(action: "schema", name: "...")` and `get-tgs(action: "lenses")`
+> are purpose-built for exactly that and return the source-of-truth shape.
+> Introspection is slower, noisier, and easy to get wrong.
 
 ## Core Data Model
 
@@ -336,12 +408,26 @@ socials(where: {name: {_like: "%phantom%"}}, limit: 5) {
 }
 ```
 
+**Count matches — use `<entity>Aggregate { _count }`:**
+```graphql
+# Total profiles
+profileInfosAggregate { _count }
+
+# Filtered count — wrap the filter in `filter_input`
+productsAggregate(filter_input: {where: {productStatus: {slug: {_eq: "live"}}}}) {
+  _count
+}
+```
+This API does **not** use the Hasura shape `entity_aggregate { aggregate { count } }`
+— that field does not exist and the query will fail. It's `entityAggregate { _count }`.
+
 ## Tag Queries
 
 Tags are a powerful way to find profiles by event attendance, ecosystem membership,
-community affiliation, or technology focus. There are 50+ tags across 8 tag types.
+community affiliation, or technology focus. Tags are grouped into tag types.
 
-**Tag types:** Event, Community, Tech, Paradigm, Geography, Hackathon, Report
+**Tag types (illustrative — run `get-tgs(action: "enum", name: "tagTypes")` for the
+current set):** Event, Community, Tech, Paradigm, Geography, Hackathon, Report
 
 **Find profiles by tag name:**
 ```graphql
@@ -399,7 +485,7 @@ get-tgs(action: "enum", name: "tags")
 Profiles can be linked to each other via `rootRelationships` — parent/subsidiary,
 acquisitions, and brand associations.
 
-**Relationship types:** Acquired by, Associated with, Managed by, Product of
+**Relationship types** (run `get-tgs(action: "enum", name: "rootRelationshipTypes")` for the current set): Acquired by, Associated with, Managed by, Product of
 
 **Find subsidiaries/sub-brands of a profile:**
 ```graphql
@@ -446,34 +532,33 @@ rootRelationships(
 ## Blockchain Ecosystem Queries
 
 When a user asks about a blockchain ecosystem (e.g., "What's in the Solana ecosystem?"),
-there are **two ways** to find products on that chain.
-Always start by finding the chain's Product ID via its Profile.
+there are **two ways** to find products on that chain. Filter by the chain product's
+**name**, never a hardcoded numeric id — ids are not stable (newer rows get hash ids
+like `id1739677005-…`), so a baked-in `"22"` rots silently.
 
-**Step 1 (always): Profile -> L1/L2 Product ID**
+If you do need the chain's product id (e.g. to reuse across several queries), resolve
+it live first, then bind it — don't memorise it:
 
 ```graphql
 profileInfos(where: {name: {_eq: "Solana"}}) {
   name
   root {
-    products(where: {productType: {slug: {_in: ["l1", "l2"]}}}) {
-      id
-      name
-    }
+    products(where: {productType: {slug: {_in: ["l1", "l2"]}}}) { id name }
   }
 }
-# Result: Solana Mainnet (id: "22")
 ```
 
 **Method A — `supportsProducts` (broader, recommended first)**
 
 Products declare which other products they support. This captures ecosystem membership
 even without on-chain deployments (e.g., data platforms, trading bots, analytics tools).
+Filter through the join to the supported product's name:
 
 ```graphql
 products(
   where: {
     supportsProducts: {
-      supportsProductId: {_eq: "22"}
+      supportsProduct: {name: {_eq: "Solana Mainnet"}}
     }
   }
   limit: 20
@@ -535,7 +620,7 @@ productAssetRelationships(
 }
 ```
 
-**`assetSupportType` values:** Native to, Supported by, Governance, Managed by,
+**`assetSupportType` values** (run `get-tgs(action: "enum", name: "assetSupportTypes")` for the current set): Native to, Supported by, Governance, Managed by,
 Utility, Launched via, Distributed via, Payment Accepted by
 
 ## Media Queries
@@ -554,20 +639,43 @@ profileInfos(where: {name: {_eq: "Phantom"}}) {
 }
 ```
 
-**Media types:** Icon, Logo on white, Logo on black, Header
+**Media types** (run `get-tgs(action: "enum", name: "mediaTypes")` for the current set): Icon, Logo on white, Logo on black, Header
 
 ## Grid Rank
 
-Profiles have an importance score based on ecosystem connectivity.
+Each profile carries an importance measure based on ecosystem connectivity —
+how many other profiles, products, and assets it links to. Two fields:
+
+- **`score`** — the raw connectivity magnitude. Higher is better; unbounded
+  (e.g. Ethereum ≈ 4,799, a long-tail profile in the low tens).
+- **`ranking`** — the profile's **ordinal position** on the global leaderboard.
+  **`1` is the most important profile** (Ethereum is #1, Solana #2, Bitcoin #3).
+  Ascending `ranking` corresponds to descending `score`.
+
+Prefer `ranking` for "is this a top-N profile / where does it sit" and `score`
+for the raw magnitude or for comparing two profiles' relative weight.
 
 ```graphql
 profileInfos(where: {name: {_eq: "Uniswap"}}) {
   name
   root {
-    gridRank { score }
+    gridRank { score ranking }   # e.g. { score: 292, ranking: 17 }
   }
 }
 ```
+
+**Leaderboard — top profiles by rank** (sort `ranking` ascending):
+
+```graphql
+gridRank(order_by: {ranking: Asc}, limit: 10) {
+  ranking score
+  root { profileInfos { name } }
+}
+```
+
+> Note: `ranking` is a live field but is not yet listed in
+> `get-tgs(action: "schema", name: "gridRank")` (which currently documents only
+> `score`) — query it anyway; it resolves.
 
 ## Key Rules
 

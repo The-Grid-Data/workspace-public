@@ -24,7 +24,13 @@ get-tgs(action: "enum", name: "productTypes")
 
 ## Available Enums
 
-| Enum | Count | Use For |
+> The counts below are a **snapshot** and drift as the taxonomy grows — they're
+> here for rough scale only. Never treat them as current. Run
+> `get-tgs(action: "enums")` for live counts and `get-tgs(action: "enum", name: "...")`
+> for the actual values. Counts also include the `not set` (const `"0"`) member,
+> so a "real value" list is usually one shorter than the count.
+
+| Enum | Count (snapshot) | Use For |
 |------|-------|---------|
 | `productTypes` | 118 | Classifying products (DEX, Wallet, L1, AI Agent, etc.) |
 | `productStatuses` | 7 | Product lifecycle (Live, In Development, etc.) |

@@ -10,7 +10,7 @@
     {
       "name": "grid-search",
       "description": "Query The Grid's Web3 knowledge graph — search profiles, products, assets, and smart contracts across 100+ chains via GraphQL or natural language. No API key required.",
-      "version": "1.1.0",
+      "version": "3.0.0",
       "source": "./grid-search",
       "category": "database",
       "homepage": "https://thegrid.id/mcp",
